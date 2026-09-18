@@ -65,6 +65,13 @@ def init_repo(name: str, repo_url: str, create: bool = False) -> None:
 def _ensure_repo(instance: cfg.Instance) -> Path:
     if not instance.data_repo:
         raise SyncError(f"Instance {instance.name!r} has no data_repo configured. Run `sync init` first.")
+    if not instance.data_repo_path:
+        # An empty data_repo_path would expand to the current working directory
+        # (Path("").expanduser() == "."), which is never what we want here.
+        raise SyncError(
+            f"Instance {instance.name!r} has a data_repo but no local data_repo_path set. "
+            "Run `sync init` again to link it properly."
+        )
     repo_path = instance.expanded("data_repo_path")
     if not repo_path.exists():
         repo_path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,10 +100,12 @@ def push(name: str, message: str = "") -> None:
     shutil.copy(exported, repo_path / EXPORT_FILENAME)
 
     _git(["add", EXPORT_FILENAME], cwd=repo_path)
-    commit_msg = message or f"Sync {name}"
-    commit = _git(["commit", "-m", commit_msg], cwd=repo_path)
-    if commit.returncode != 0 and "nothing to commit" not in (commit.stdout + commit.stderr):
-        raise SyncError(f"git commit failed:\n{commit.stdout}\n{commit.stderr}")
+    staged = _git(["diff", "--cached", "--quiet"], cwd=repo_path)
+    if staged.returncode != 0:  # non-zero means there IS something staged to commit
+        commit_msg = message or f"Sync {name}"
+        commit = _git(["commit", "-m", commit_msg], cwd=repo_path)
+        if commit.returncode != 0:
+            raise SyncError(f"git commit failed:\n{commit.stdout}\n{commit.stderr}")
 
     push_result = _git(["push", "-u", "origin", instance.export_branch], cwd=repo_path)
     if push_result.returncode != 0:

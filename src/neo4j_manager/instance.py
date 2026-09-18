@@ -105,6 +105,50 @@ def shell(name: str) -> None:
     docker_ops.cypher_shell_interactive(instance)
 
 
+RECREATE_FIELDS = ("image", "plugins", "http_port", "bolt_port")
+
+
+def update(
+    name: str,
+    *,
+    image: str | None = None,
+    plugins: list[str] | None = None,
+    http_port: int | None = None,
+    bolt_port: int | None = None,
+) -> cfg.Instance:
+    """Apply the given fields to a stored instance.
+
+    Fields in RECREATE_FIELDS are baked into the container at `docker run`
+    time, so changing any of them recreates the container (stop+rm+run) to
+    take effect. The mounted volumes -- and therefore the actual graph data
+    -- are untouched by this; only the container itself is replaced.
+    """
+    config, instance = get(name)
+
+    updates = {
+        "image": image,
+        "plugins": plugins,
+        "http_port": http_port,
+        "bolt_port": bolt_port,
+    }
+    updates = {k: v for k, v in updates.items() if v is not None}
+    changed = {k for k, v in updates.items() if getattr(instance, k) != v}
+    for k, v in updates.items():
+        setattr(instance, k, v)
+
+    config.instances[name] = instance
+    cfg.save(config)
+
+    if changed & set(RECREATE_FIELDS):
+        state = docker_ops.container_status(instance.container_name)
+        if state is not None:
+            docker_ops.docker_stop(instance.container_name)
+            docker_ops.docker_rm(instance.container_name)
+        docker_ops.docker_run(instance)
+
+    return instance
+
+
 def list_status() -> list[dict]:
     config = cfg.load()
     rows = []

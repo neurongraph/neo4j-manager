@@ -141,6 +141,14 @@ def shell(name: str):
     inst.shell(name)
 
 
+@app.command()
+def tui():
+    """Launch the interactive TUI dashboard (browse/create/edit instances, sync push/pull)."""
+    from neo4j_manager import tui as tui_mod
+
+    tui_mod.run()
+
+
 @sync_app.command("init")
 def sync_init(
     name: str,

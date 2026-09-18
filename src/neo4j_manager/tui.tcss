@@ -1,0 +1,50 @@
+BusyScreen, ConfirmScreen, MessageScreen, CreateInstanceScreen, RemoveConfirmScreen {
+    align: center middle;
+}
+
+#busy-box {
+    width: 40%;
+    height: auto;
+    border: round $primary;
+    padding: 1 2;
+    background: $panel;
+    align: center middle;
+}
+
+#confirm-box, #message-box, #form-box {
+    width: 60%;
+    max-width: 80;
+    height: auto;
+    max-height: 90%;
+    border: round $primary;
+    padding: 1 2;
+    background: $panel;
+}
+
+#detail-box {
+    padding: 1 2;
+}
+
+.title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.section-title {
+    text-style: bold;
+    margin-top: 1;
+    color: $accent;
+}
+
+.error {
+    border: round $error;
+}
+
+Button {
+    margin-right: 1;
+    margin-top: 1;
+}
+
+Input {
+    margin-bottom: 1;
+}
