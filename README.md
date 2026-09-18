@@ -35,6 +35,8 @@ just run status     # uv run neo4j-manager <args>, without installing
 just tui             # uv run neo4j-manager tui
 just check            # sanity-check that every module still imports
 just clean             # remove .venv/dist/__pycache__
+just dump mydb          # one-off binary snapshot (see below)
+just load mydb            # restore a one-off binary snapshot (see below)
 ```
 
 ## Interactive TUI
@@ -80,6 +82,25 @@ neo4j-manager sync pull mydb --repo git@github.com:you/mydb-neo4j-data.git
 graph via APOC's Cypher export), not incremental merges -- they match a
 single-session, single-writer workflow: finish working on one machine, push,
 then pull on the next machine before starting a new session there.
+
+## One-off binary dump/load
+
+```bash
+just dump mydb   # writes ~/neo4j-data/mydb/import/neo4j.dump
+just load mydb   # restores it (OVERWRITES mydb's current data)
+```
+
+For a manual, one-off transfer of a full database -- not part of `sync push`/
+`sync pull`, and not meant to be committed to git. Uses `neo4j-admin database
+dump`/`load`: a faithful binary snapshot (indexes/constraints included), much
+faster than the Cypher export for large graphs, but an opaque blob rather than
+a diffable text file, and the two machines' Neo4j image versions should match.
+Both recipes briefly stop the instance's container (via a throwaway `docker
+run` against the same volumes, matching Neo4j's official offline-dump
+pattern) and restart it afterward if it was running. To move the dump to
+another machine, copy `~/neo4j-data/mydb/import/neo4j.dump` over yourself
+(scp, cloud drive, etc.) into that machine's `mydb` import dir before running
+`just load mydb` there.
 
 Config lives at `~/.config/neo4j-manager/config.toml` (not synced; holds
 per-machine ports/paths/credentials and each instance's linked repo URL).
