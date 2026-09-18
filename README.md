@@ -23,6 +23,20 @@ uv sync
 uv run neo4j-manager --help
 ```
 
+A [`justfile`](justfile) wraps the common actions -- run `just` (or
+`just --list`) to see them:
+
+```bash
+just install     # uv tool install --editable . (system-wide neo4j-manager)
+just reinstall    # force-reinstall (e.g. after adding a dependency)
+just uninstall     # uv tool uninstall neo4j-manager
+just sync          # uv sync (dev venv)
+just run status     # uv run neo4j-manager <args>, without installing
+just tui             # uv run neo4j-manager tui
+just check            # sanity-check that every module still imports
+just clean             # remove .venv/dist/__pycache__
+```
+
 ## Interactive TUI
 
 ```bash
