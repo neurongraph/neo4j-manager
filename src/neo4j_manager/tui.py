@@ -115,7 +115,7 @@ class CreateInstanceScreen(ModalScreen[dict | None]):
             yield Input(placeholder="auto", id="f-http")
             yield Label("Bolt port (blank = auto)")
             yield Input(placeholder="auto", id="f-bolt")
-            yield Label("Data dir (blank = ~/neo4j-manager/<name>)")
+            yield Label("Data dir (blank = ~/neo4j-data/<name>)")
             yield Input(placeholder="auto", id="f-datadir")
             yield Label("Image")
             yield Input(value="neo4j:latest", id="f-image")

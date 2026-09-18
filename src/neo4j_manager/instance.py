@@ -10,7 +10,7 @@ from neo4j_manager import config as cfg
 from neo4j_manager import docker_ops
 from neo4j_manager.ports import allocate_ports
 
-DEFAULT_BASE_DIR = Path.home() / "neo4j-manager"
+DEFAULT_BASE_DIR = Path.home() / "neo4j-data"
 
 
 def create(

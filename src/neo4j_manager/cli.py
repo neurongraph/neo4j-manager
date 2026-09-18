@@ -30,7 +30,7 @@ def create(
     name: str,
     http_port: Optional[int] = typer.Option(None, help="Host port for the Neo4j browser/HTTP API."),
     bolt_port: Optional[int] = typer.Option(None, help="Host port for the Bolt protocol."),
-    data_dir: Optional[str] = typer.Option(None, help="Base dir for data/logs/import/plugins (default: ~/neo4j-manager/<name>)."),
+    data_dir: Optional[str] = typer.Option(None, help="Base dir for data/logs/import/plugins (default: ~/neo4j-data/<name>)."),
     image: str = typer.Option("neo4j:latest", help="Neo4j docker image tag."),
     plugins: str = typer.Option("apoc", help="Comma-separated plugin list."),
     repo: str = typer.Option("", help="GitHub repo URL to link for sync (optional, can be set later via `sync init`)."),
