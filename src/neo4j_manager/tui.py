@@ -6,6 +6,7 @@ existing modules, exactly as the flag-based CLI does.
 
 from __future__ import annotations
 
+import webbrowser
 from typing import Callable
 
 from textual import work
@@ -31,6 +32,14 @@ from neo4j_manager import instance as inst
 from neo4j_manager import sync as sync_mod
 from neo4j_manager.docker_ops import DockerOpsError
 from neo4j_manager.sync import SyncError
+
+
+def _instance_url(name: str) -> str | None:
+    """Neo4j Browser URL for a running instance, or None if it isn't running."""
+    _, instance = inst.get(name)
+    if docker_ops.container_status(instance.container_name) != "running":
+        return None
+    return f"http://127.0.0.1:{instance.http_port}"
 
 
 class BusyScreen(ModalScreen[None]):
@@ -195,6 +204,7 @@ class InstanceListScreen(WorkerScreen):
         Binding("x", "instance_stop", "Stop"),
         Binding("r", "instance_restart", "Restart"),
         Binding("l", "instance_shell", "Shell"),
+        Binding("b", "instance_browser", "Browser"),
         Binding("p", "instance_push", "Sync push"),
         Binding("u", "instance_pull", "Sync pull"),
         Binding("D", "instance_remove", "Remove"),
@@ -289,6 +299,16 @@ class InstanceListScreen(WorkerScreen):
             docker_ops.cypher_shell_interactive(instance)
         self._refresh()
 
+    def action_instance_browser(self) -> None:
+        name = self._selected_name()
+        if not name:
+            return
+        url = _instance_url(name)
+        if url is None:
+            self.app.push_screen(MessageScreen("Not running", f"{name!r} is not running -- start it first."))
+            return
+        webbrowser.open(url)
+
     def action_instance_push(self) -> None:
         name = self._selected_name()
         if name:
@@ -380,6 +400,7 @@ class InstanceDetailScreen(WorkerScreen):
                 yield Button("Restart", id="act-restart")
             with Horizontal():
                 yield Button("Shell", id="act-shell")
+                yield Button("Open browser", id="act-browser")
                 yield Button("Sync push", id="act-push")
                 yield Button("Sync pull", id="act-pull")
                 yield Button("Sync status", id="act-syncstatus")
@@ -433,6 +454,8 @@ class InstanceDetailScreen(WorkerScreen):
             self._run_worker(lambda: inst.restart(self.instance_name), "Restarting...")
         elif bid == "act-shell":
             self._open_shell()
+        elif bid == "act-browser":
+            self._open_browser()
         elif bid == "act-push":
             self._run_worker(lambda: sync_mod.push(self.instance_name), "Pushing...")
         elif bid == "act-pull":
@@ -486,6 +509,13 @@ class InstanceDetailScreen(WorkerScreen):
         with self.app.suspend():
             docker_ops.cypher_shell_interactive(instance)
         self._refresh()
+
+    def _open_browser(self) -> None:
+        url = _instance_url(self.instance_name)
+        if url is None:
+            self.app.push_screen(MessageScreen("Not running", "Start the instance first."))
+            return
+        webbrowser.open(url)
 
     def _do_pull(self) -> None:
         st = sync_mod.status(self.instance_name)

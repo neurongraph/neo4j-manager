@@ -45,7 +45,7 @@ neo4j-manager tui
 
 Launches a full-screen dashboard instead of remembering flags: a live table of
 instances (`n` new, `enter` open, `s`/`x`/`r` start/stop/restart, `l` shell,
-`p`/`u` sync push/pull, `D` remove), and a per-instance detail screen where you
+`b` open in browser, `p`/`u` sync push/pull, `D` remove), and a per-instance detail screen where you
 can view and edit its settings as a form -- sync settings (data repo URL,
 export branch) save immediately, instance settings (image, plugins, ports)
 recreate the container on save (your data on disk is untouched). The plain
