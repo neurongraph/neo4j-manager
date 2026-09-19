@@ -2,6 +2,17 @@ BusyScreen, ConfirmScreen, MessageScreen, CreateInstanceScreen, RemoveConfirmScr
     align: center middle;
 }
 
+/* textual.containers.Horizontal defaults to height: 1fr, which is meant
+   for filling a fixed viewport alongside sibling rows. Every Horizontal
+   in this app is just a row of buttons/widgets that should be as tall as
+   its content -- left at 1fr inside a VerticalScroll (whose height is
+   itself "auto", derived from its children) it collapses to a sliver and
+   gets clipped by the container's own `overflow: hidden hidden`, making
+   the row disappear entirely regardless of scrolling. */
+Horizontal {
+    height: auto;
+}
+
 #busy-box {
     width: 40%;
     height: auto;
