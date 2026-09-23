@@ -43,6 +43,10 @@ def init_repo(name: str, repo_url: str, create: bool = False) -> None:
     repo_path = base / "repo"
     repo_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Remove old repo if it exists and we're switching to a different URL
+    if repo_path.exists() and instance.data_repo and instance.data_repo != repo_url:
+        shutil.rmtree(repo_path)
+
     if not repo_path.exists():
         result = _git(["clone", repo_url, str(repo_path)], cwd=repo_path.parent)
         if result.returncode != 0:
