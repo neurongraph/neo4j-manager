@@ -9,6 +9,7 @@ from __future__ import annotations
 import webbrowser
 from typing import Callable
 
+import pyperclip
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -357,6 +358,7 @@ class InstanceDetailScreen(WorkerScreen):
     BINDINGS = [
         Binding("escape", "back", "Back"),
         Binding("v", "toggle_password", "Show/hide password"),
+        Binding("c", "copy_password", "Copy password"),
     ]
 
     def __init__(self, name: str) -> None:
@@ -439,6 +441,11 @@ class InstanceDetailScreen(WorkerScreen):
     def action_toggle_password(self) -> None:
         self._show_password = not self._show_password
         self._refresh()
+
+    def action_copy_password(self) -> None:
+        _, instance = inst.get(self.instance_name)
+        pyperclip.copy(instance.auth_password)
+        self.app.push_screen(MessageScreen("Copied", "Password copied to clipboard."))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
