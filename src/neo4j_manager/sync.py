@@ -111,6 +111,9 @@ def push(name: str, message: str = "") -> None:
         if commit.returncode != 0:
             raise SyncError(f"git commit failed:\n{commit.stdout}\n{commit.stderr}")
 
+    # Ensure branch exists locally before pushing (needed for newly initialized repos)
+    _git(["branch", "-M", instance.export_branch], cwd=repo_path)
+
     push_result = _git(["push", "-u", "origin", instance.export_branch], cwd=repo_path)
     if push_result.returncode != 0:
         raise SyncError(f"git push failed:\n{push_result.stdout}\n{push_result.stderr}")
