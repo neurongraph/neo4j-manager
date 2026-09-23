@@ -374,6 +374,8 @@ class InstanceDetailScreen(WorkerScreen):
             yield Label("Sync settings", classes="section-title")
             yield Label("Data repo URL")
             yield Input(id="f-repo")
+            yield Label("Local repo path (read-only)")
+            yield Static(id="detail-repo-path")
             yield Label("Export branch")
             yield Input(id="f-branch")
             yield Button("Save sync settings", id="save-sync")
@@ -422,6 +424,7 @@ class InstanceDetailScreen(WorkerScreen):
             f"user={instance.auth_user}  password={password}  (press 'v' to reveal/hide)"
         )
         self.query_one("#f-repo", Input).value = instance.data_repo
+        self.query_one("#detail-repo-path", Static).update(instance.data_repo_path or "(not set)")
         self.query_one("#f-branch", Input).value = instance.export_branch
         self.query_one("#f-image", Input).value = instance.image
         self.query_one("#f-plugins", Input).value = ", ".join(instance.plugins)
