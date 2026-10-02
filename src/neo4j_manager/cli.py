@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from neo4j_manager import config as cfg_mod
+from neo4j_manager import docker_ops
 from neo4j_manager import instance as inst
 from neo4j_manager import sync as sync_mod
 from neo4j_manager.docker_ops import DockerOpsError
@@ -25,6 +28,27 @@ def _fail(exc: Exception) -> None:
     raise typer.Exit(1)
 
 
+def _json_fail(msg: str) -> None:
+    typer.echo(json.dumps({"error": msg}), err=True)
+    raise typer.Exit(1)
+
+
+def _instance_payload(instance: cfg_mod.Instance, state: str) -> dict:
+    return {
+        "name": instance.name,
+        "container_name": instance.container_name,
+        "state": state,
+        "bolt_url": f"bolt://127.0.0.1:{instance.bolt_port}",
+        "http_url": f"http://127.0.0.1:{instance.http_port}",
+        "bolt_port": instance.bolt_port,
+        "http_port": instance.http_port,
+        "user": instance.auth_user,
+        "password": instance.auth_password,
+        "image": instance.image,
+        "data_dir": instance.data_dir,
+    }
+
+
 @app.command()
 def create(
     name: str,
@@ -35,8 +59,18 @@ def create(
     plugins: str = typer.Option("apoc", help="Comma-separated plugin list."),
     repo: str = typer.Option("", help="GitHub repo URL to link for sync (optional, can be set later via `sync init`)."),
     start: bool = typer.Option(True, help="Start the container immediately after creating it."),
+    json_output: bool = typer.Option(False, "--json", help="Print result as JSON to stdout (suppresses rich output)."),
+    wait: bool = typer.Option(False, "--wait", help="Block until Neo4j accepts bolt connections (requires --start)."),
+    timeout: int = typer.Option(60, "--timeout", help="Seconds to wait for readiness (used with --wait)."),
 ):
     """Register and (by default) start a new named Neo4j instance."""
+    if wait and not start:
+        if json_output:
+            _json_fail("--wait requires --start; cannot wait for a container that is not started")
+        else:
+            _fail(ValueError("--wait requires --start; cannot wait for a container that is not started"))
+        return
+
     try:
         instance = inst.create(
             name,
@@ -48,13 +82,31 @@ def create(
             repo=repo,
             start=start,
         )
-    except (DockerOpsError, SyncError) as e:
-        _fail(e)
+    except (DockerOpsError, SyncError, ValueError) as e:
+        if json_output:
+            _json_fail(str(e))
+        else:
+            _fail(e)
         return
-    console.print(
-        f"[green]Created[/green] {name!r}: http://127.0.0.1:{instance.http_port} "
-        f"bolt://127.0.0.1:{instance.bolt_port}  user=neo4j password={instance.auth_password}"
-    )
+
+    if wait:
+        try:
+            docker_ops.wait_ready(instance, timeout=float(timeout))
+        except DockerOpsError as e:
+            if json_output:
+                _json_fail(str(e))
+            else:
+                _fail(e)
+            return
+
+    state = docker_ops.container_status(instance.container_name) or "not created"
+    if json_output:
+        typer.echo(json.dumps(_instance_payload(instance, state)))
+    else:
+        console.print(
+            f"[green]Created[/green] {name!r}: http://127.0.0.1:{instance.http_port} "
+            f"bolt://127.0.0.1:{instance.bolt_port}  user=neo4j password={instance.auth_password}"
+        )
 
 
 @app.command()
@@ -91,21 +143,50 @@ def restart(name: str):
 
 
 @app.command(name="list")
-def list_cmd():
+def list_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Print result as a JSON array to stdout."),
+):
     """List all known instances and their status."""
-    _print_status(inst.list_status())
+    if json_output:
+        config = cfg_mod.load()
+        payload = [
+            _instance_payload(instance, docker_ops.container_status(instance.container_name) or "not created")
+            for instance in config.instances.values()
+        ]
+        typer.echo(json.dumps(payload))
+    else:
+        _print_status(inst.list_status())
 
 
 @app.command()
-def status(name: Optional[str] = typer.Argument(None)):
+def status(
+    name: Optional[str] = typer.Argument(None),
+    json_output: bool = typer.Option(False, "--json", help="Print result as JSON to stdout."),
+):
     """Show status for one instance, or all instances if no name is given."""
-    rows = inst.list_status()
-    if name:
-        rows = [r for r in rows if r["name"] == name]
-        if not rows:
-            _fail(SystemExit(f"No such instance: {name!r}"))
-            return
-    _print_status(rows)
+    if json_output:
+        config = cfg_mod.load()
+        if name is not None:
+            if name not in config.instances:
+                _json_fail(f"No such instance: {name!r}")
+                return
+            instance = config.instances[name]
+            state = docker_ops.container_status(instance.container_name) or "not created"
+            typer.echo(json.dumps(_instance_payload(instance, state)))
+        else:
+            payload = [
+                _instance_payload(instance, docker_ops.container_status(instance.container_name) or "not created")
+                for instance in config.instances.values()
+            ]
+            typer.echo(json.dumps(payload))
+    else:
+        rows = inst.list_status()
+        if name:
+            rows = [r for r in rows if r["name"] == name]
+            if not rows:
+                _fail(SystemExit(f"No such instance: {name!r}"))
+                return
+        _print_status(rows)
 
 
 def _print_status(rows: list[dict]) -> None:

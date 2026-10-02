@@ -83,6 +83,46 @@ graph via APOC's Cypher export), not incremental merges -- they match a
 single-session, single-writer workflow: finish working on one machine, push,
 then pull on the next machine before starting a new session there.
 
+## Scripting / JSON output
+
+Pass `--json` to `create`, `status`, or `list` to get machine-readable output instead of the rich table.
+The JSON is printed to **stdout** only; errors go to **stderr** with a non-zero exit code, so
+`json.loads(stdout)` either succeeds or the caller sees the failure on stderr.
+
+```bash
+# Create an instance and wait until Neo4j is ready to accept connections
+neo4j-manager create demo --json --wait | python3 -c \
+  'import json,sys; d=json.load(sys.stdin); print(d["bolt_url"], d["password"])'
+
+# Look up an existing instance (idempotent: create if missing, status if present)
+neo4j-manager status demo --json
+
+# List all instances as a JSON array (each entry includes password and bolt_url)
+neo4j-manager list --json
+```
+
+Every object has the same shape:
+
+```json
+{
+  "name": "demo",
+  "container_name": "neo4j-demo",
+  "state": "running",
+  "bolt_url": "bolt://127.0.0.1:7688",
+  "http_url": "http://127.0.0.1:7475",
+  "bolt_port": 7688,
+  "http_port": 7475,
+  "user": "neo4j",
+  "password": "...",
+  "image": "neo4j:latest",
+  "data_dir": "..."
+}
+```
+
+`--wait` blocks `create` until `cypher-shell "RETURN 1"` succeeds inside the container (default
+timeout: 60 s, override with `--timeout SECONDS`). Use it to avoid racing the JVM startup.
+`--wait` with `--no-start` is a usage error.
+
 ## One-off binary dump/load
 
 ```bash

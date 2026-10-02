@@ -31,6 +31,10 @@ tui:
 check:
     uv run python -c "from neo4j_manager import config, ports, docker_ops, instance, sync, cli, tui; print('OK')"
 
+# Run the test suite (no Docker needed)
+test:
+    uv run pytest tests/ -v
+
 # Remove local build/venv artifacts
 clean:
     rm -rf .venv dist *.egg-info

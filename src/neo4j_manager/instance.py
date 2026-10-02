@@ -25,7 +25,7 @@ def create(
 ) -> cfg.Instance:
     config = cfg.load()
     if name in config.instances:
-        raise SystemExit(f"Instance {name!r} already exists. Use a different name or `remove` it first.")
+        raise ValueError(f"Instance {name!r} already exists. Use a different name or `remove` it first.")
 
     if http_port is None or bolt_port is None:
         auto_http, auto_bolt = allocate_ports(config)
