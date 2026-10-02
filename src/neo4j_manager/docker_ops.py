@@ -102,7 +102,9 @@ def docker_stop(container_name: str) -> None:
 
 
 def docker_rm(container_name: str) -> None:
-    _run(["docker", "rm", "-f", container_name], capture_output=True)
+    result = _run(["docker", "rm", "-f", container_name], capture_output=True)
+    if result.returncode != 0 and "No such container" not in result.stderr:
+        raise DockerOpsError(f"docker rm failed:\n{result.stdout}\n{result.stderr}")
 
 
 def cypher_shell(instance: Instance, cypher: str, timeout: int = 30) -> subprocess.CompletedProcess:

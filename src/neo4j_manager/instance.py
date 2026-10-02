@@ -57,6 +57,9 @@ def create(
     cfg.save(config)
 
     if start:
+        # Clear any orphaned container left behind by an earlier failed removal.
+        if docker_ops.container_status(instance.container_name) is not None:
+            docker_ops.docker_rm(instance.container_name)
         docker_ops.docker_run(instance)
 
     return instance
@@ -90,6 +93,8 @@ def restart(name: str) -> None:
 
 def remove(name: str, purge_data: bool = False) -> None:
     config, instance = get(name)
+    docker_ops.require_tools()
+    docker_ops.colima_start(config.colima_profile)
     docker_ops.docker_rm(instance.container_name)
     if purge_data:
         for attr in ("data_dir", "logs_dir", "import_dir", "plugins_dir"):
