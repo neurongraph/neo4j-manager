@@ -46,6 +46,9 @@ def _instance_payload(instance: cfg_mod.Instance, state: str) -> dict:
         "password": instance.auth_password,
         "image": instance.image,
         "data_dir": instance.data_dir,
+        "heap_size": instance.heap_size,
+        "pagecache_size": instance.pagecache_size,
+        "memory_limit": instance.memory_limit,
     }
 
 
@@ -59,6 +62,9 @@ def create(
     plugins: str = typer.Option("apoc", help="Comma-separated plugin list."),
     repo: str = typer.Option("", help="GitHub repo URL to link for sync (optional, can be set later via `sync init`)."),
     start: bool = typer.Option(True, help="Start the container immediately after creating it."),
+    heap: str = typer.Option("", "--heap", help="Neo4j heap size, e.g. 1g (initial = max). Default: Neo4j's own heuristic."),
+    pagecache: str = typer.Option("", "--pagecache", help="Neo4j page cache size, e.g. 512m. Default: image default (512M)."),
+    memory_limit: str = typer.Option("", "--memory-limit", help="Hard container memory cap (docker --memory), e.g. 2g. Default: none."),
     json_output: bool = typer.Option(False, "--json", help="Print result as JSON to stdout (suppresses rich output)."),
     wait: bool = typer.Option(False, "--wait", help="Block until Neo4j accepts bolt connections (requires --start)."),
     timeout: int = typer.Option(60, "--timeout", help="Seconds to wait for readiness (used with --wait)."),
@@ -81,6 +87,9 @@ def create(
             image=image,
             repo=repo,
             start=start,
+            heap_size=heap,
+            pagecache_size=pagecache,
+            memory_limit=memory_limit,
         )
     except (DockerOpsError, SyncError, ValueError) as e:
         if json_output:
@@ -190,11 +199,12 @@ def status(
 
 
 def _print_status(rows: list[dict]) -> None:
+    cols = ("name", "state", "http_port", "bolt_port", "heap_size", "pagecache_size", "memory_limit", "image", "data_dir")
     table = Table()
-    for col in ("name", "state", "http_port", "bolt_port", "image", "data_dir"):
+    for col in cols:
         table.add_column(col)
     for r in rows:
-        table.add_row(*(str(r[c]) for c in ("name", "state", "http_port", "bolt_port", "image", "data_dir")))
+        table.add_row(*(str(r[c]) if r[c] != "" else "default" for c in cols))
     console.print(table)
 
 

@@ -32,6 +32,17 @@ Horizontal {
     background: $panel;
 }
 
+#vm-stats {
+    height: auto;
+    padding: 0 1;
+    background: $panel;
+}
+
+#vm-stats.overcommit {
+    color: $warning;
+    text-style: bold;
+}
+
 #detail-box {
     padding: 1 2;
 }

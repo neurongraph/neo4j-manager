@@ -10,6 +10,7 @@ import webbrowser
 from typing import Callable
 
 import pyperclip
+from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -30,6 +31,7 @@ from textual.widgets import (
 from neo4j_manager import config as cfg
 from neo4j_manager import docker_ops
 from neo4j_manager import instance as inst
+from neo4j_manager import memory
 from neo4j_manager import sync as sync_mod
 from neo4j_manager.docker_ops import DockerOpsError
 from neo4j_manager.sync import SyncError
@@ -41,6 +43,47 @@ def _instance_url(name: str) -> str | None:
     if docker_ops.container_status(instance.container_name) != "running":
         return None
     return f"http://127.0.0.1:{instance.http_port}"
+
+
+def _mem_used_cell(instance: cfg.Instance, snap: memory.Snapshot | None) -> Text:
+    """Current usage, as a % of the container limit if one is set (red at >= 90%)."""
+    if snap is None:
+        return Text("...")
+    stats = snap.containers.get(instance.container_name)
+    if stats is None:
+        return Text("-")
+    used, limit = stats
+    if not instance.memory_limit or not limit:
+        return Text(memory.format_bytes(used))
+    pct = 100 * used / limit
+    return Text(f"{memory.format_bytes(used)} ({pct:.0f}%)", style="bold red" if pct >= 90 else "")
+
+
+_MEMORY_FIELDS = (
+    ("heap_size", "f-heap", "Heap size, e.g. 1g (blank = Neo4j default: 1/4 of VM RAM)"),
+    ("pagecache_size", "f-pagecache", "Page cache size, e.g. 512m (blank = image default 512M)"),
+    ("memory_limit", "f-memlimit", "Container memory limit, e.g. 2g (blank = no limit)"),
+)
+
+
+def _memory_inputs() -> ComposeResult:
+    for _, input_id, label in _MEMORY_FIELDS:
+        yield Label(label)
+        yield Input(placeholder="default", id=input_id)
+
+
+def _read_memory_inputs(screen: Screen) -> dict[str, str] | None:
+    """Validated memory sizes from a form, or None (after flagging the bad field) if one is invalid."""
+    sizes = {}
+    for key, input_id, _ in _MEMORY_FIELDS:
+        field_input = screen.query_one(f"#{input_id}", Input)
+        try:
+            sizes[key] = memory.normalize_size(field_input.value)
+        except ValueError as e:
+            field_input.focus()
+            screen.app.push_screen(MessageScreen("Invalid input", str(e), error=True))
+            return None
+    return sizes
 
 
 class BusyScreen(ModalScreen[None]):
@@ -131,6 +174,7 @@ class CreateInstanceScreen(ModalScreen[dict | None]):
             yield Input(value="neo4j:latest", id="f-image")
             yield Label("Plugins (comma separated)")
             yield Input(value="apoc", id="f-plugins")
+            yield from _memory_inputs()
             yield Label("Data repo URL (optional, can set later)")
             yield Input(placeholder="git@github.com:you/mydb-neo4j-data.git", id="f-repo")
             with Horizontal():
@@ -151,8 +195,13 @@ class CreateInstanceScreen(ModalScreen[dict | None]):
             value = value.strip()
             return int(value) if value else None
 
+        sizes = _read_memory_inputs(self)
+        if sizes is None:
+            return
+
         self.dismiss(
             {
+                **sizes,
                 "name": name,
                 "http_port": int_or_none(self.query_one("#f-http", Input).value),
                 "bolt_port": int_or_none(self.query_one("#f-bolt", Input).value),
@@ -172,6 +221,18 @@ class WorkerScreen(Screen):
 
     def _refresh(self) -> None:
         raise NotImplementedError
+
+    @work(thread=True, exclusive=True, group="memory")
+    def _load_memory(self) -> None:
+        """Fetch VM + container memory off the UI thread (`docker stats` takes ~1s)."""
+        try:
+            snap, error = memory.snapshot(cfg.load()), None
+        except Exception as e:  # noqa: BLE001 -- shown inline, stats are best-effort
+            snap, error = None, f"{type(e).__name__}: {e}"
+        self.app.call_from_thread(self._memory_loaded, snap, error)
+
+    def _memory_loaded(self, snap: memory.Snapshot | None, error: str | None) -> None:
+        pass
 
     def _run_worker(self, fn: Callable[[], None], busy_message: str, on_success: Callable[[], None] | None = None) -> None:
         busy = BusyScreen(busy_message)
@@ -214,17 +275,48 @@ class InstanceListScreen(WorkerScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield Static("Colima: loading memory stats...", id="vm-stats")
         yield DataTable(id="instances")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
         table.cursor_type = "row"
-        table.add_columns("Name", "State", "HTTP", "Bolt", "Image", "Repo linked")
+        for label, key in (
+            ("Name", "name"),
+            ("State", "state"),
+            ("HTTP", "http"),
+            ("Bolt", "bolt"),
+            ("Mem used", "mem_used"),
+            ("Mem limit", "mem_limit"),
+            ("Heap", "heap"),
+            ("Page cache", "pagecache"),
+            ("Image", "image"),
+            ("Repo linked", "linked"),
+        ):
+            table.add_column(label, key=key)
         self.sub_title = "Enter: open selected"
         self._names: list[str] = []
+        self._mem: memory.Snapshot | None = None
         self._refresh()
+        self._load_memory()
         self.set_interval(4.0, self._refresh)
+        self.set_interval(4.0, self._load_memory)
+
+    def _memory_loaded(self, snap: memory.Snapshot | None, error: str | None) -> None:
+        vm_stats = self.query_one("#vm-stats", Static)
+        if snap is None:
+            vm_stats.update(f"Memory stats unavailable: {error}")
+            return
+        self._mem = snap
+        config = cfg.load()
+        summary, overcommit = memory.vm_summary(config, snap)
+        vm_stats.update(summary)
+        vm_stats.set_class(overcommit, "overcommit")
+        table = self.query_one(DataTable)
+        for name in self._names:
+            if name in config.instances:
+                table.update_cell(name, "mem_used", _mem_used_cell(config.instances[name], snap))
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_open_detail()
@@ -236,9 +328,20 @@ class InstanceListScreen(WorkerScreen):
         self._names = []
         config = cfg.load()
         for row in inst.list_status():
-            linked = "yes" if config.instances[row["name"]].data_repo else "no"
+            instance = config.instances[row["name"]]
+            linked = "yes" if instance.data_repo else "no"
             table.add_row(
-                row["name"], row["state"], str(row["http_port"]), str(row["bolt_port"]), row["image"], linked
+                row["name"],
+                row["state"],
+                str(row["http_port"]),
+                str(row["bolt_port"]),
+                _mem_used_cell(instance, self._mem),
+                instance.memory_limit or "none",
+                instance.heap_size or "default",
+                instance.pagecache_size or "default",
+                row["image"],
+                linked,
+                key=row["name"],
             )
             self._names.append(row["name"])
         if self._names and prev_row is not None:
@@ -265,6 +368,9 @@ class InstanceListScreen(WorkerScreen):
                     plugins=data["plugins"],
                     image=data["image"],
                     repo=data["repo"],
+                    heap_size=data["heap_size"],
+                    pagecache_size=data["pagecache_size"],
+                    memory_limit=data["memory_limit"],
                 ),
                 f"Creating {data['name']!r}...",
             )
@@ -370,6 +476,7 @@ class InstanceDetailScreen(WorkerScreen):
         yield Header()
         with VerticalScroll(id="detail-box"):
             yield Static(id="detail-summary")
+            yield Static("memory: loading...", id="detail-memory")
 
             yield Label("Sync settings", classes="section-title")
             yield Label("Data repo URL")
@@ -392,6 +499,7 @@ class InstanceDetailScreen(WorkerScreen):
             yield Input(id="f-http")
             yield Label("Bolt port")
             yield Input(id="f-bolt")
+            yield from _memory_inputs()
             yield Button("Save instance settings", id="save-instance", variant="warning")
 
             yield Label("Data paths (read-only)", classes="section-title")
@@ -430,12 +538,33 @@ class InstanceDetailScreen(WorkerScreen):
         self.query_one("#f-plugins", Input).value = ", ".join(instance.plugins)
         self.query_one("#f-http", Input).value = str(instance.http_port)
         self.query_one("#f-bolt", Input).value = str(instance.bolt_port)
+        for key, input_id, _ in _MEMORY_FIELDS:
+            self.query_one(f"#{input_id}", Input).value = getattr(instance, key)
+        self._load_memory()
         self.query_one("#detail-paths", Static).update(
             f"data:    {instance.data_dir}\n"
             f"logs:    {instance.logs_dir}\n"
             f"import:  {instance.import_dir}\n"
             f"plugins: {instance.plugins_dir}\n"
             f"repo:    {instance.data_repo_path or '(not linked)'}"
+        )
+
+    def _memory_loaded(self, snap: memory.Snapshot | None, error: str | None) -> None:
+        detail = self.query_one("#detail-memory", Static)
+        if snap is None:
+            detail.update(f"memory: stats unavailable: {error}")
+            return
+        instance = self._instance
+        peak = memory.estimated_peak(instance, snap.vm_total)
+        detail.update(
+            Text.assemble(
+                "memory: used ",
+                _mem_used_cell(instance, snap),
+                f"  limit={instance.memory_limit or 'none'}"
+                f"  heap={instance.heap_size or 'default'}"
+                f"  pagecache={instance.pagecache_size or 'default'}"
+                f"  est. peak {memory.format_bytes(peak)} of {memory.format_bytes(snap.vm_total)} VM",
+            )
         )
 
     def action_back(self) -> None:
@@ -507,9 +636,12 @@ class InstanceDetailScreen(WorkerScreen):
         except ValueError:
             self.app.push_screen(MessageScreen("Invalid input", "Ports must be numbers.", error=True))
             return
+        sizes = _read_memory_inputs(self)
+        if sizes is None:
+            return
         self._run_worker(
             lambda: inst.update(
-                self.instance_name, image=image, plugins=plugins, http_port=http_port, bolt_port=bolt_port
+                self.instance_name, image=image, plugins=plugins, http_port=http_port, bolt_port=bolt_port, **sizes
             ),
             "Applying changes (may recreate container)...",
         )

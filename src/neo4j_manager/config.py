@@ -39,6 +39,10 @@ class Instance:
     data_repo: str = ""
     data_repo_path: str = ""
     export_branch: str = "main"
+    # Memory sizes like "512m" / "2g"; blank = Neo4j/Docker default.
+    heap_size: str = ""  # server.memory.heap.initial_size and max_size
+    pagecache_size: str = ""  # server.memory.pagecache.size
+    memory_limit: str = ""  # docker run --memory (hard cap for the whole container)
 
     def expanded(self, attr: str) -> Path:
         return Path(getattr(self, attr)).expanduser()

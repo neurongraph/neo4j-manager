@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from neo4j_manager.config import Instance
 
 
+STOP_TIMEOUT = 60  # seconds `docker stop` waits before SIGKILL
+
+
 class DockerOpsError(RuntimeError):
     pass
 
@@ -45,6 +48,41 @@ def colima_start(profile: str = "default") -> None:
         raise DockerOpsError(f"colima start failed:\n{result.stdout}\n{result.stderr}")
 
 
+def colima_vm_info(profile: str = "default") -> dict | None:
+    """`colima list` entry for the profile: status, cpus, memory (bytes), ... or None."""
+    result = _run(["colima", "list", "--json"], capture_output=True)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.strip():
+            entry = json.loads(line)
+            if entry.get("name") == profile:
+                return entry
+    return None
+
+
+def vm_meminfo(profile: str = "default") -> dict[str, int]:
+    """/proc/meminfo inside the Colima VM, in bytes (e.g. MemTotal, MemAvailable); {} on failure."""
+    result = _run(["colima", "ssh", "--profile", profile, "--", "cat", "/proc/meminfo"], capture_output=True)
+    if result.returncode != 0:
+        return {}
+    info = {}
+    for line in result.stdout.splitlines():
+        key, _, rest = line.partition(":")
+        fields = rest.split()
+        if fields and fields[0].isdigit():
+            info[key] = int(fields[0]) * (1024 if fields[1:] == ["kB"] else 1)
+    return info
+
+
+def container_mem_usage() -> dict[str, str]:
+    """{container_name: "687.6MiB / 7.738GiB"} for running containers (~1s: docker samples)."""
+    result = _run(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.MemUsage}}"], capture_output=True)
+    if result.returncode != 0:
+        return {}
+    return dict(line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+
+
 def container_status(container_name: str) -> str | None:
     """Returns 'running', 'exited', etc, or None if the container doesn't exist."""
     result = _run(
@@ -70,10 +108,19 @@ def docker_run(instance: Instance) -> None:
             "-e", "NEO4J_dbms_security_procedures_unrestricted=apoc.*",
             "-e", "NEO4J_apoc_export_file_enabled=true",
         ]
+    if instance.heap_size:
+        env += [
+            "-e", f"NEO4J_server_memory_heap_initial__size={instance.heap_size}",
+            "-e", f"NEO4J_server_memory_heap_max__size={instance.heap_size}",
+        ]
+    if instance.pagecache_size:
+        env += ["-e", f"NEO4J_server_memory_pagecache_size={instance.pagecache_size}"]
+    limits = ["--memory", instance.memory_limit] if instance.memory_limit else []
 
     cmd = [
         "docker", "run",
         "--name", instance.container_name,
+        *limits,
         "-p", f"{instance.http_port}:7474",
         "-p", f"{instance.bolt_port}:7687",
         "-d",
@@ -96,7 +143,9 @@ def docker_start(container_name: str) -> None:
 
 
 def docker_stop(container_name: str) -> None:
-    result = _run(["docker", "stop", container_name], capture_output=True)
+    # Neo4j checkpoints on shutdown; docker's default 10s grace period can SIGKILL it
+    # mid-checkpoint (exit 137), forcing store recovery on the next start.
+    result = _run(["docker", "stop", "-t", str(STOP_TIMEOUT), container_name], capture_output=True)
     if result.returncode != 0:
         raise DockerOpsError(f"docker stop failed:\n{result.stdout}\n{result.stderr}")
 

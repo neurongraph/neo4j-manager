@@ -53,11 +53,39 @@ export branch) save immediately, instance settings (image, plugins, ports)
 recreate the container on save (your data on disk is untouched). The plain
 flag-based commands below still work exactly as before for scripting.
 
+The instance list also shows memory: a header line with the Colima VM's CPUs,
+RAM used/available, total container usage, and an estimated peak for the
+running instances (flagged when it exceeds the VM's RAM), plus per-instance
+`Mem used`, `Mem limit`, `Heap` and `Page cache` columns.
+
+## Memory settings
+
+All instances share one Colima VM. With nothing configured, each Neo4j
+container sees the whole VM and sizes itself from it: a max heap of 1/4 of VM
+RAM plus the image's 512M page cache, plus JVM overhead. Several busy
+instances can exhaust the VM, and the kernel then SIGKILLs one (exit 137). Each
+instance can optionally set:
+
+| Setting | CLI flag (`create`) | Effect |
+|---|---|---|
+| `heap_size` | `--heap 1g` | `server.memory.heap.initial_size` and `max_size` |
+| `pagecache_size` | `--pagecache 512m` | `server.memory.pagecache.size` |
+| `memory_limit` | `--memory-limit 2g` | `docker run --memory`: a hard cap for the container |
+
+Sizes are a whole number plus `k`/`m`/`g`; blank (the default) keeps Neo4j's
+and Docker's own behaviour. They're applied when the container is created, so
+changing them on the TUI's detail screen recreates that container (data on
+disk is untouched). Keep `memory_limit` comfortably above heap + page cache
+(e.g. heap `1g`, page cache `512m`, limit `2g`).
+
 ## Usage
 
 ```bash
 # Create and start a new instance (auto-picks free ports, generates a password)
 neo4j-manager create mydb
+
+# ...optionally with explicit memory sizing (see "Memory settings")
+neo4j-manager create mydb --heap 1g --pagecache 512m --memory-limit 2g
 
 # Lifecycle
 neo4j-manager status
@@ -115,7 +143,10 @@ Every object has the same shape:
   "user": "neo4j",
   "password": "...",
   "image": "neo4j:latest",
-  "data_dir": "..."
+  "data_dir": "...",
+  "heap_size": "",
+  "pagecache_size": "",
+  "memory_limit": ""
 }
 ```
 

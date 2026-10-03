@@ -8,6 +8,7 @@ from pathlib import Path
 
 from neo4j_manager import config as cfg
 from neo4j_manager import docker_ops
+from neo4j_manager.memory import normalize_size
 from neo4j_manager.ports import allocate_ports
 
 DEFAULT_BASE_DIR = Path.home() / "neo4j-data"
@@ -22,6 +23,9 @@ def create(
     image: str = "neo4j:latest",
     repo: str = "",
     start: bool = True,
+    heap_size: str = "",
+    pagecache_size: str = "",
+    memory_limit: str = "",
 ) -> cfg.Instance:
     config = cfg.load()
     if name in config.instances:
@@ -48,6 +52,9 @@ def create(
         auth_password=secrets.token_urlsafe(18),
         data_repo=repo,
         data_repo_path=str(base / "repo") if repo else "",
+        heap_size=normalize_size(heap_size),
+        pagecache_size=normalize_size(pagecache_size),
+        memory_limit=normalize_size(memory_limit),
     )
 
     docker_ops.require_tools()
@@ -110,7 +117,7 @@ def shell(name: str) -> None:
     docker_ops.cypher_shell_interactive(instance)
 
 
-RECREATE_FIELDS = ("image", "plugins", "http_port", "bolt_port")
+RECREATE_FIELDS = ("image", "plugins", "http_port", "bolt_port", "heap_size", "pagecache_size", "memory_limit")
 
 
 def update(
@@ -120,6 +127,9 @@ def update(
     plugins: list[str] | None = None,
     http_port: int | None = None,
     bolt_port: int | None = None,
+    heap_size: str | None = None,
+    pagecache_size: str | None = None,
+    memory_limit: str | None = None,
 ) -> cfg.Instance:
     """Apply the given fields to a stored instance.
 
@@ -135,8 +145,14 @@ def update(
         "plugins": plugins,
         "http_port": http_port,
         "bolt_port": bolt_port,
+        "heap_size": heap_size,
+        "pagecache_size": pagecache_size,
+        "memory_limit": memory_limit,
     }
     updates = {k: v for k, v in updates.items() if v is not None}
+    for k in ("heap_size", "pagecache_size", "memory_limit"):
+        if k in updates:
+            updates[k] = normalize_size(updates[k])
     changed = {k for k, v in updates.items() if getattr(instance, k) != v}
     for k, v in updates.items():
         setattr(instance, k, v)
@@ -167,6 +183,9 @@ def list_status() -> list[dict]:
                 "bolt_port": instance.bolt_port,
                 "image": instance.image,
                 "data_dir": instance.data_dir,
+                "heap_size": instance.heap_size,
+                "pagecache_size": instance.pagecache_size,
+                "memory_limit": instance.memory_limit,
             }
         )
     return rows
